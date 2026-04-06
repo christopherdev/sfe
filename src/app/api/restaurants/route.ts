@@ -41,6 +41,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
 
-  const { ok: _, ...data } = result;
+  const { ok: _ok, ...data } = result;
   return NextResponse.json({ ...data, source: apiKey ? "yelp" : "openstreetmap" });
 }

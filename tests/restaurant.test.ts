@@ -97,7 +97,7 @@ describe("RestaurantSchema (unified)", () => {
   });
 
   it("rejects missing name", () => {
-    const { name: _, ...noName } = validRestaurant;
+    const { name: _name, ...noName } = validRestaurant;
     expect(RestaurantSchema.safeParse(noName).success).toBe(false);
   });
 
@@ -111,7 +111,7 @@ describe("RestaurantSchema (unified)", () => {
   });
 
   it("rejects missing coordinates", () => {
-    const { coordinates: _, ...noCoords } = validRestaurant;
+    const { coordinates: _coords, ...noCoords } = validRestaurant;
     expect(RestaurantSchema.safeParse(noCoords).success).toBe(false);
   });
 });

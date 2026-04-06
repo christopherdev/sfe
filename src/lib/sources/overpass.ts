@@ -4,9 +4,13 @@ import {
   type Restaurant,
 } from "@/lib/validations/restaurant";
 
-const OVERPASS_API_URL = "https://overpass-api.de/api/interpreter";
+const OVERPASS_MIRRORS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
+];
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
 const MAX_RESULTS = 20;
+const MIRROR_TIMEOUT_MS = 8000;
 
 interface GeoResult {
   bbox: [string, string, string, string];
@@ -70,20 +74,55 @@ export async function fetchFromOverpass(city: string): Promise<OverpassResult> {
 node["amenity"="restaurant"](${south},${west},${north},${east});
 out 40;`;
 
-  const response = await fetch(OVERPASS_API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "text/plain" },
-    body: query,
-  });
+  let text: string | null = null;
+  let allMirrorsBusy = true;
 
-  const contentType = response.headers.get("content-type") ?? "";
-  const text = await response.text();
+  for (const mirrorUrl of OVERPASS_MIRRORS) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), MIRROR_TIMEOUT_MS);
 
-  if (!response.ok || !contentType.includes("application/json")) {
-    if (text.includes("too busy") || text.includes("timeout")) {
-      return { ok: false, error: "OpenStreetMap is busy. Please try again in a few seconds.", status: 503 };
+    try {
+      const response = await fetch(mirrorUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain",
+          "User-Agent": "RestaurantSearch/1.0",
+        },
+        body: query,
+        signal: controller.signal,
+      });
+      const responseText = await response.text();
+      clearTimeout(timeoutId);
+
+      const contentType = response.headers.get("content-type") ?? "";
+
+      if (response.ok && contentType.includes("application/json")) {
+        text = responseText;
+        break;
+      }
+
+      if (
+        response.status === 503 ||
+        response.status === 504 ||
+        responseText.includes("too busy") ||
+        responseText.includes("timeout")
+      ) {
+        continue;
+      }
+
+      allMirrorsBusy = false;
+      break;
+    } catch {
+      // Network error, abort timeout, DNS, TLS — treat as unhealthy mirror, try next
+      clearTimeout(timeoutId);
+      continue;
     }
-    return { ok: false, error: "Failed to fetch from OpenStreetMap. Try again.", status: 502 };
+  }
+
+  if (text === null) {
+    return allMirrorsBusy
+      ? { ok: false, error: "OpenStreetMap is busy. Please try again in a few seconds.", status: 503 }
+      : { ok: false, error: "Failed to fetch from OpenStreetMap. Try again.", status: 502 };
   }
 
   let data: unknown;
@@ -104,7 +143,6 @@ out 40;`;
       typeof el.tags?.name === "string" &&
       ((el.lat != null && el.lon != null) || el.center != null)
     )
-    .slice(0, MAX_RESULTS)
     .map((el) => {
       const lat = el.lat ?? el.center!.lat;
       const lon = el.lon ?? el.center!.lon;
@@ -117,17 +155,21 @@ out 40;`;
         el.tags["addr:postcode"],
       ].filter(Boolean);
 
-      return {
-        id: `osm-${el.type}-${el.id}`,
-        name: el.tags.name,
-        rating: null,
-        coordinates: { latitude: lat, longitude: lon },
-        address: parts.length > 0 ? parts.join(", ") : "Address not available",
-        source: "openstreetmap" as const,
-        cuisine: el.tags.cuisine ?? null,
-        phone: el.tags.phone ?? null,
-      };
-    });
+      return parts.length > 0
+        ? {
+            id: `osm-${el.type}-${el.id}`,
+            name: el.tags.name,
+            rating: null,
+            coordinates: { latitude: lat, longitude: lon },
+            address: parts.join(", "),
+            source: "openstreetmap" as const,
+            cuisine: el.tags.cuisine ?? null,
+            phone: el.tags.phone ?? null,
+          }
+        : null;
+    })
+    .filter((r): r is NonNullable<typeof r> => r !== null)
+    .slice(0, MAX_RESULTS);
 
   return { ok: true, restaurants, total: restaurants.length, resolvedLocation: geo.displayName };
 }

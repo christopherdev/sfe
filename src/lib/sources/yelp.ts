@@ -25,8 +25,18 @@ export async function fetchFromYelp(city: string, apiKey: string): Promise<YelpR
 
   if (!response.ok) {
     const status = response.status;
-    if (status === 401) {
-      return { ok: false, error: "Invalid Yelp API key", status: 401 };
+    const body = await response.json().catch(() => null);
+    const code = body?.error?.code;
+
+    const isAuthError =
+      status === 401 ||
+      status === 403 ||
+      code === "TOKEN_INVALID" ||
+      code === "TOKEN_MISSING" ||
+      body?.error?.field === "Authorization";
+
+    if (isAuthError) {
+      return { ok: false, error: "Invalid Yelp API key. Check your key and try again.", status: 401 };
     }
     if (status === 400) {
       return { ok: false, error: "Could not find that city. Check the spelling and try again.", status: 400 };
