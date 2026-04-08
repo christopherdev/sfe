@@ -6,15 +6,14 @@ export const SearchInputSchema = z.object({
     .min(1, "City is required")
     .max(100, "City name too long")
     .trim(),
-  apiKey: z
+  // Canonical Google Place Id for the city, forwarded from the autocomplete
+  // pick. When present the server resolves the city's center and constrains
+  // restaurant results to a 5-mile circle around it.
+  placeId: z
     .string()
     .trim()
-    .optional()
-    .default("")
-    .refine(
-      (val) => val === "" || /^[a-zA-Z0-9_-]{20,128}$/.test(val),
-      "API key format is invalid"
-    ),
+    .max(200)
+    .optional(),
 });
 
 export type SearchInput = z.infer<typeof SearchInputSchema>;
@@ -29,9 +28,12 @@ export const RestaurantSchema = z.object({
     longitude: z.number(),
   }),
   address: z.string(),
-  source: z.enum(["yelp", "openstreetmap"]),
+  source: z.enum(["yelp", "google", "openstreetmap"]),
   cuisine: z.string().nullable(),
   phone: z.string().nullable(),
+  // External provider id (e.g. Google Places `place_id`) for deep-linking.
+  // null when the source doesn't produce one.
+  placeId: z.string().nullable().default(null),
 });
 
 export type Restaurant = z.infer<typeof RestaurantSchema>;
@@ -104,11 +106,29 @@ export const NominatimResultSchema = z.object({
 
 export const NominatimResponseSchema = z.array(NominatimResultSchema).min(1);
 
+// Google Places API (New) — Text Search response schemas
+export const GooglePlaceSchema = z.object({
+  id: z.string(),
+  displayName: z.object({ text: z.string() }),
+  rating: z.number().min(0).max(5).optional(),
+  location: z.object({
+    latitude: z.number(),
+    longitude: z.number(),
+  }),
+  formattedAddress: z.string().optional(),
+  nationalPhoneNumber: z.string().optional(),
+});
+
+export const GooglePlacesResponseSchema = z.object({
+  places: z.array(GooglePlaceSchema).optional().default([]),
+  nextPageToken: z.string().optional(),
+});
+
 // API response schema for client-side validation
 export const ApiResponseSchema = z.object({
   restaurants: z.array(RestaurantSchema),
   total: z.number(),
-  source: z.enum(["yelp", "openstreetmap"]),
+  source: z.enum(["yelp", "google", "openstreetmap"]),
   resolvedLocation: z.string().optional(),
 });
 

@@ -57,23 +57,13 @@ export type OverpassResult =
   | { ok: true; restaurants: Restaurant[]; total: number; resolvedLocation: string }
   | { ok: false; error: string; status: number };
 
-export async function fetchFromOverpass(city: string): Promise<OverpassResult> {
-  const geo = await geocodeCity(city);
+type OverpassRunResult =
+  | { ok: true; text: string }
+  | { ok: false; error: string; status: number };
 
-  if (!geo) {
-    return { ok: false, error: "Could not find that location. Check the spelling and try again.", status: 400 };
-  }
-
-  if ("error" in geo) {
-    return { ok: false, error: geo.error, status: 400 };
-  }
-
-  const [south, north, west, east] = geo.bbox;
-
-  const query = `[out:json][timeout:25];
-node["amenity"="restaurant"](${south},${west},${north},${east});
-out 40;`;
-
+// Executes an Overpass QL query against the mirror list with per-mirror
+// timeouts and distinguishes "busy" from "hard error" responses.
+async function runOverpassQuery(query: string): Promise<OverpassRunResult> {
   let text: string | null = null;
   let allMirrorsBusy = true;
 
@@ -125,20 +115,27 @@ out 40;`;
       : { ok: false, error: "Failed to fetch from OpenStreetMap. Try again.", status: 502 };
   }
 
+  return { ok: true, text };
+}
+
+// Parses an Overpass JSON response body into unified Restaurant objects.
+// Returns null when the payload isn't valid JSON or doesn't match the schema.
+function parseRestaurants(text: string): Restaurant[] | null {
   let data: unknown;
   try {
     data = JSON.parse(text);
   } catch {
-    return { ok: false, error: "Invalid response from OpenStreetMap", status: 502 };
+    return null;
   }
 
   const validated = OverpassResponseSchema.safeParse(data);
+  if (!validated.success) return null;
 
-  if (!validated.success) {
-    return { ok: false, error: "Unexpected response from OpenStreetMap", status: 502 };
-  }
-
-  const restaurants: Restaurant[] = validated.data.elements
+  // Accept any node with a name and coordinates. OSM data is sparse — many
+  // legitimate POIs have a name, lat/lng and cuisine but no structured
+  // addr:* tags. Requiring a full address block shrinks the result set to
+  // nothing in smaller cities.
+  return validated.data.elements
     .filter((el): el is typeof el & { tags: NonNullable<typeof el.tags> & { name: string } } =>
       typeof el.tags?.name === "string" &&
       ((el.lat != null && el.lon != null) || el.center != null)
@@ -155,21 +152,78 @@ out 40;`;
         el.tags["addr:postcode"],
       ].filter(Boolean);
 
-      return parts.length > 0
-        ? {
-            id: `osm-${el.type}-${el.id}`,
-            name: el.tags.name,
-            rating: null,
-            coordinates: { latitude: lat, longitude: lon },
-            address: parts.join(", "),
-            source: "openstreetmap" as const,
-            cuisine: el.tags.cuisine ?? null,
-            phone: el.tags.phone ?? null,
-          }
-        : null;
+      return {
+        id: `osm-${el.type}-${el.id}`,
+        name: el.tags.name,
+        rating: null,
+        coordinates: { latitude: lat, longitude: lon },
+        address: parts.join(", "),
+        source: "openstreetmap" as const,
+        cuisine: el.tags.cuisine ?? null,
+        phone: el.tags.phone ?? null,
+        // Overpass has no external provider id equivalent.
+        placeId: null,
+      };
     })
-    .filter((r): r is NonNullable<typeof r> => r !== null)
     .slice(0, MAX_RESULTS);
+}
+
+export async function fetchFromOverpass(city: string): Promise<OverpassResult> {
+  const geo = await geocodeCity(city);
+
+  if (!geo) {
+    return { ok: false, error: "Could not find that location. Check the spelling and try again.", status: 400 };
+  }
+
+  if ("error" in geo) {
+    return { ok: false, error: geo.error, status: 400 };
+  }
+
+  const [south, north, west, east] = geo.bbox;
+
+  // Fetch ~1.5× MAX_RESULTS so parseRestaurants can drop unnamed/address-less
+  // nodes and still fill the grid. Capped to MAX_RESULTS downstream.
+  const query = `[out:json][timeout:25];
+node["amenity"="restaurant"](${south},${west},${north},${east});
+out 30;`;
+
+  const run = await runOverpassQuery(query);
+  if (!run.ok) return run;
+
+  const restaurants = parseRestaurants(run.text);
+  if (restaurants === null) {
+    return { ok: false, error: "Unexpected response from OpenStreetMap", status: 502 };
+  }
 
   return { ok: true, restaurants, total: restaurants.length, resolvedLocation: geo.displayName };
+}
+
+// Fetches restaurants within `radiusKm` of the given coordinates using
+// Overpass's `around:` filter. No geocoding needed.
+export async function fetchFromOverpassByCoords(
+  lat: number,
+  lng: number,
+  radiusKm: number
+): Promise<OverpassResult> {
+  const radiusMeters = Math.round(radiusKm * 1000);
+  // Same ~1.5× MAX_RESULTS hedge as the city-search path. Downstream
+  // parseRestaurants drops nodes without a name/address and slices to MAX.
+  const query = `[out:json][timeout:25];
+node["amenity"="restaurant"](around:${radiusMeters},${lat},${lng});
+out 30;`;
+
+  const run = await runOverpassQuery(query);
+  if (!run.ok) return run;
+
+  const restaurants = parseRestaurants(run.text);
+  if (restaurants === null) {
+    return { ok: false, error: "Unexpected response from OpenStreetMap", status: 502 };
+  }
+
+  return {
+    ok: true,
+    restaurants,
+    total: restaurants.length,
+    resolvedLocation: `${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+  };
 }

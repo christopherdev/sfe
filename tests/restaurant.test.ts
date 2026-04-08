@@ -9,37 +9,18 @@ import {
 } from "../src/lib/validations/restaurant";
 
 describe("SearchInputSchema", () => {
-  it("accepts city with apiKey", () => {
-    const result = SearchInputSchema.safeParse({
-      city: "San Francisco",
-      apiKey: "abcdefghijklmnopqrstuvwxyz1234",
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it("accepts city without apiKey (defaults to empty string)", () => {
+  it("accepts valid city", () => {
     const result = SearchInputSchema.safeParse({ city: "Portland" });
     expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.apiKey).toBe("");
-    }
-  });
-
-  it("accepts empty apiKey string", () => {
-    const result = SearchInputSchema.safeParse({ city: "Chicago", apiKey: "" });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.apiKey).toBe("");
-    }
   });
 
   it("rejects empty city", () => {
-    const result = SearchInputSchema.safeParse({ city: "", apiKey: "" });
+    const result = SearchInputSchema.safeParse({ city: "" });
     expect(result.success).toBe(false);
   });
 
   it("rejects missing city", () => {
-    const result = SearchInputSchema.safeParse({ apiKey: "key" });
+    const result = SearchInputSchema.safeParse({});
     expect(result.success).toBe(false);
   });
 
@@ -92,7 +73,7 @@ describe("RestaurantSchema (unified)", () => {
 
   it("rejects invalid source", () => {
     expect(
-      RestaurantSchema.safeParse({ ...validRestaurant, source: "google" }).success
+      RestaurantSchema.safeParse({ ...validRestaurant, source: "foursquare" }).success
     ).toBe(false);
   });
 

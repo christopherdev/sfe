@@ -60,6 +60,8 @@ export async function fetchFromYelp(city: string, apiKey: string): Promise<YelpR
     source: "yelp",
     cuisine: null,
     phone: b.phone ?? null,
+    // Yelp uses the business id itself as the deep-link handle.
+    placeId: b.id,
   }));
 
   return { ok: true, restaurants, total: validated.data.total };
