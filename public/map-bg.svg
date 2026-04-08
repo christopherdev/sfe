@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M 48 0 L 0 0 0 48" fill="none" stroke="#78716c" stroke-width="1.2" />
+    </pattern>
+    <pattern id="block-grid" width="192" height="192" patternUnits="userSpaceOnUse">
+      <path d="M 192 0 L 0 0 0 192" fill="none" stroke="#a8a29e" stroke-width="2" />
+    </pattern>
+    <radialGradient id="glow" cx="45%" cy="38%" r="65%">
+      <stop offset="0%" stop-color="#fbbf24" stop-opacity="0.35" />
+      <stop offset="60%" stop-color="#f59e0b" stop-opacity="0.08" />
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <!-- Dark base -->
+  <rect width="1200" height="800" fill="#1c1917" />
+
+  <!-- Street grids -->
+  <rect width="1200" height="800" fill="url(#grid)" />
+  <rect width="1200" height="800" fill="url(#block-grid)" />
+
+  <!-- River / body of water -->
+  <path
+    d="M -50 520 C 220 420, 420 620, 640 500 S 980 380, 1260 480 L 1260 860 L -50 860 Z"
+    fill="#0c4a6e"
+    opacity="0.55"
+  />
+  <path
+    d="M -50 520 C 220 420, 420 620, 640 500 S 980 380, 1260 480"
+    fill="none"
+    stroke="#38bdf8"
+    stroke-width="3"
+    opacity="0.5"
+  />
+
+  <!-- Diagonal highway -->
+  <line x1="-20" y1="120" x2="1220" y2="260" stroke="#facc15" stroke-width="4" opacity="0.6" />
+  <line x1="-20" y1="680" x2="1220" y2="580" stroke="#facc15" stroke-width="3.5" opacity="0.5" />
+
+  <!-- Parks (green rectangles) -->
+  <rect x="180" y="180" width="220" height="140" fill="#166534" opacity="0.75" rx="6" />
+  <rect x="820" y="80" width="140" height="90" fill="#166534" opacity="0.7" rx="6" />
+  <rect x="540" y="340" width="110" height="80" fill="#166534" opacity="0.65" rx="6" />
+
+  <!-- Landmark dots -->
+  <circle cx="320" cy="260" r="8" fill="#fbbf24" opacity="1" />
+  <circle cx="680" cy="360" r="8" fill="#fbbf24" opacity="1" />
+  <circle cx="920" cy="240" r="8" fill="#fbbf24" opacity="1" />
+  <circle cx="480" cy="600" r="7" fill="#fbbf24" opacity="0.9" />
+  <circle cx="1000" cy="540" r="7" fill="#fbbf24" opacity="0.9" />
+  <circle cx="220" cy="460" r="6" fill="#fbbf24" opacity="0.85" />
+
+  <!-- Radial glow on top -->
+  <rect width="1200" height="800" fill="url(#glow)" />
+</svg>

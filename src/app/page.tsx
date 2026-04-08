@@ -1,19 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ApiResponseSchema, type ApiResponse } from "@/lib/validations/restaurant";
 
 export default function Home() {
   const [city, setCity] = useState("");
-  const [apiKey, setApiKey] = useState("");
   const [result, setResult] = useState<ApiResponse | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [searchedCity, setSearchedCity] = useState("");
+  // Tracks the in-flight search request so a newer submit can abort an older
+  // one and avoid "typed Tokyo, got Berlin results" races.
+  const inFlightRef = useRef<AbortController | null>(null);
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     const trimmedCity = city.trim();
+
+    // Cancel any previous search still in flight.
+    inFlightRef.current?.abort();
+    const controller = new AbortController();
+    inFlightRef.current = controller;
+
     setError("");
     setResult(null);
     setLoading(true);
@@ -23,7 +31,8 @@ export default function Home() {
       const res = await fetch("/api/restaurants", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ city: trimmedCity, apiKey: apiKey.trim() }),
+        body: JSON.stringify({ city: trimmedCity }),
+        signal: controller.signal,
       });
 
       let data: unknown;
@@ -35,39 +44,56 @@ export default function Home() {
       }
 
       if (!res.ok) {
-        const body = data as Record<string, unknown>;
-        setError((body.error as string) || "Something went wrong");
+        const body = data as Record<string, unknown> | null;
+        const message =
+          body && typeof body.error === "string" ? body.error : "Something went wrong";
+        setError(message);
         return;
       }
 
       const parsed = ApiResponseSchema.safeParse(data);
-
       if (!parsed.success) {
         setError("Received unexpected data from the server.");
         return;
       }
 
       setResult(parsed.data);
+      // Prefer Google's canonical name ("San Francisco, CA, USA") over
+      // whatever the user typed ("sf").
       if (parsed.data.resolvedLocation) {
         setSearchedCity(parsed.data.resolvedLocation);
       }
-    } catch {
+    } catch (err) {
+      // Aborted requests throw AbortError — silently ignore, a newer request
+      // is now in flight.
+      if (err instanceof DOMException && err.name === "AbortError") return;
       setError("Failed to connect. Check your network and try again.");
     } finally {
-      setLoading(false);
+      // Only clear loading if THIS request is still the current one; an
+      // aborted older request must not un-stick the newer one's spinner.
+      if (inFlightRef.current === controller) {
+        setLoading(false);
+        inFlightRef.current = null;
+      }
     }
   }
 
   const restaurants = result?.restaurants ?? [];
   const total = result?.total ?? 0;
-  const source = result?.source;
 
   return (
-    <div className="min-h-screen bg-stone-50 dark:bg-stone-950">
-      <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
+    <div className="relative min-h-screen">
+      {/* Blurred static-SVG "map" backdrop. Sits in document order before
+          the content, which renders on top naturally — no z-index needed.
+          scale-110 pushes the blur edges outside the viewport. */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0 scale-110 bg-[url('/map-bg.svg')] bg-cover bg-center opacity-70 blur-md"
+      />
+      <div className="relative mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
         <div className="grid gap-10 lg:grid-cols-[340px_1fr]">
           {/* Left column — search */}
-          <aside className="lg:sticky lg:top-8 lg:self-start">
+          <aside className="lg:sticky lg:top-4 lg:self-start">
             <header className="mb-8">
               <h1 className="text-3xl font-bold tracking-tight text-stone-900 dark:text-stone-50">
                 Restaurant Search
@@ -86,18 +112,6 @@ export default function Home() {
                 required
                 className="h-12 rounded-xl border border-stone-200 bg-white px-4 text-sm text-stone-900 shadow-sm placeholder:text-stone-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-50 dark:focus:border-amber-400 dark:focus:ring-amber-400/20"
               />
-              <div>
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="Yelp API key (optional)"
-                  className="h-12 w-full rounded-xl border border-stone-200 bg-white px-4 text-sm text-stone-900 shadow-sm placeholder:text-stone-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-50 dark:focus:border-amber-400 dark:focus:ring-amber-400/20"
-                />
-                <p className="mt-1.5 pl-1 text-xs text-stone-400 dark:text-stone-500">
-                  Leave blank to use OpenStreetMap data
-                </p>
-              </div>
               <button
                 type="submit"
                 disabled={loading}
@@ -125,7 +139,7 @@ export default function Home() {
                       : `${restaurants.length} restaurants in ${searchedCity}`}
                   </h2>
                   <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-medium text-stone-500 dark:bg-stone-800 dark:text-stone-400">
-                    {source === "yelp" ? "Yelp" : "OpenStreetMap"}
+                    Google Places
                   </span>
                 </div>
                 <ul className="grid gap-4 sm:grid-cols-2">
